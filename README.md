@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/platform-Linux-1793D1" alt="Linux">
   <img src="https://img.shields.io/badge/built%20with-yeet%20%2B%20eBPF-8A2BE2" alt="yeet + eBPF">
   <img src="https://img.shields.io/badge/license-Dual%20BSD%2FGPL-3DA639" alt="Dual BSD/GPL">
-  <a href="https://discord.gg/dYZu9PjKB"><img src="https://img.shields.io/badge/chat-Discord-5865F2" alt="Discord"></a>
+  <a href="https://discord.gg/JxVseaAVAU"><img src="https://img.shields.io/badge/chat-Discord-5865F2" alt="Discord"></a>
 </p>
 
 <p align="center">
@@ -186,4 +186,4 @@ Dual BSD/GPL. The BPF program declares `char LICENSE[] SEC("license") = "Dual BS
 
 ---
 
-Built with [yeet](https://yeet.cx/docs/), a JS runtime for writing eBPF programs on Linux. Join us on [Discord](https://discord.gg/dYZu9PjKB).
+Built with [yeet](https://yeet.cx/docs/), a JS runtime for writing eBPF programs on Linux. Join us on [Discord](https://discord.gg/JxVseaAVAU).
