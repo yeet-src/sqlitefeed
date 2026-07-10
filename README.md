@@ -49,6 +49,23 @@ The feed follows the newest statement by default; scroll or pause and it holds s
 | `p`            | pause / resume the feed                                           |
 | `q` / `Esc`    | quit                                                              |
 
+## JSON output (headless)
+
+Pipe the feed into anything: when no terminal is allocated (output piped, or
+forced with `yeet run -T`), sqlitefeed emits **one JSON object per completed
+execution** on stdout instead of rendering the dashboard — the same
+correlated records the TUI shows (SQL + bound values + rows + latency + rc),
+machine-readable. Status lines go to stderr.
+
+```sh
+yeet run -T . | jq 'select(.rc != 101)'          # only the non-DONE outcomes
+yeet run -T . | your-checker --stdin              # e.g. semantic linting of live SQL
+```
+
+```json
+{"process":"python3","pid":34412,"tid":34412,"sql":"INSERT OR IGNORE INTO users (username, email, age, score) VALUES (?, ?, ?, ?)","params":[{"idx":1,"type":"text","value":"alice5866"},{"idx":2,"type":"text","value":"alice5866@example.com"},{"idx":3,"type":"int","value":"27"},{"idx":4,"type":"real","value":"?real"}],"rows":0,"steps":1,"rc":101,"total_ns":3100000,"max_ns":3100000}
+```
+
 ## What you're looking at
 
 ```

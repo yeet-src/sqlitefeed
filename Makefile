@@ -28,9 +28,10 @@ all: bpf bundle
 
 # Bundle the entry with the vendored esbuild. esbuild honors tsconfig `paths`
 # (so `@/` resolves at bundle time), while `yeet:*` builtins and `*.bpf.o`
-# objects stay external. The bundle is written to src/index.jsx, which the
-# entry ladder prefers over src/main.jsx — so once built, that is what runs.
-# The .jsx extension keeps the bundle eligible for component auto-mount.
+# objects stay external. The bundle is written to src/index.js, which the
+# entry ladder prefers over src/main.js — so once built, that is what runs.
+# The entry is plain .js (it mounts explicitly) so `yeet run -T` can force
+# the headless JSON mode; see src/main.js.
 # Compiled BPF objects in bin/ are loaded by path at runtime, never imported,
 # so they are not bundled.
 #
@@ -41,10 +42,10 @@ all: bpf bundle
 ESBUILD_FLAGS := --bundle --format=esm --platform=neutral \
 	--main-fields=module,main --conditions=import,module \
 	--define:import.meta.main=false \
-	--outfile=src/index.jsx --jsx=automatic --jsx-import-source=yeet:tui
+	--outfile=src/index.js --jsx=automatic --jsx-import-source=yeet:tui
 
 bundle: | toolchain
-	$(ESBUILD) src/main.jsx $(ESBUILD_FLAGS) '--external:yeet:*' '--external:*.bpf.o'
+	$(ESBUILD) src/main.js $(ESBUILD_FLAGS) '--external:yeet:*' '--external:*.bpf.o'
 
 # Post-generation finalize: initialize a git repository with the vendored git
 # (fetched via `vendored-git`). Idempotent — skipped if this is already a repo.
@@ -62,6 +63,6 @@ postgen: | vendored-git
 	fi
 
 clean: clean-bpf
-	rm -rf node_modules dist src/index.jsx
+	rm -rf node_modules dist src/index.js src/index.jsx
 
 .PHONY: all bundle clean postgen

@@ -94,19 +94,13 @@ export const stats = signal({ tracked: 0, prepareRate: 0, stepRate: 0, rowRate: 
 // crash-handling boundary 1).
 export const status = signal("starting…");
 
-// The reactive model is an append-only LOG of completed executions, not a
-// mutable per-statement aggregate. A statement is one row per EXECUTION: it's
-// assembled in-flight (prepare → bind* → step*), then FROZEN into the log the
-// moment it finishes and never touched again — so a row already on screen never
-// changes or jumps. New executions unshift at the top.
-export const statements = from((state) => {
-  const log = []; // completed executions, newest first — immutable once pushed
-  let logId = 0; // monotonic row id
-  let total = 0; // cumulative executions seen (title-bar counter)
+// Attach the probes and stream every completed execution to `onStatement`.
+// Shared by the TUI signal below and the headless JSON mode (src/json.js).
+// Callbacks: onStatement(row), onStatus(text), onActivity("prepares"|"steps"|"rows").
+// Returns a detach function.
+export function attachStatements({ onStatement, onStatus = () => {}, onActivity = () => {} }) {
   const cur = new Map(); // stmtId → the execution currently being assembled
   const sqlByStmt = new Map(); // stmtId → last known SQL (survives cached reuse)
-  let dirty = false; // did the log change since the last publish?
-  const win = { prepares: 0, steps: 0, rows: 0 }; // reset each window
 
   const newExec = (sql, comm, pid, tid) => ({
     sql: sql ?? "",
@@ -123,14 +117,13 @@ export const statements = from((state) => {
     maxNs: 0,
   });
 
-  // Freeze an in-flight execution into an immutable log row.
+  // Freeze an in-flight execution into an immutable row.
   const finalize = (e) => {
     // If it stepped but we never saw a terminal code (it was superseded by a
     // reset+rerun of a cached statement), it did complete — infer DONE rather
     // than showing the initial OK.
     const rc = e.lastRc === 0 && e.steps > 0 ? SQLITE_DONE : e.lastRc;
-    log.unshift({
-      id: ++logId,
+    onStatement({
       isExec: e.isExec,
       sql: e.sql,
       comm: e.comm,
@@ -145,9 +138,6 @@ export const statements = from((state) => {
       totalNs: e.totalNs,
       avgNs: e.steps ? e.totalNs / e.steps : 0,
     });
-    if (log.length > CAP) log.length = CAP; // bound scrollback
-    total++;
-    dirty = true;
   };
 
   // Begin a new execution for a stmt, flushing any lingering one first (e.g. a
@@ -164,7 +154,7 @@ export const statements = from((state) => {
   const ctl = load();
   const sub = ctl
     .then((c) => {
-      status.set("tracing");
+      onStatus("tracing");
       return new RingBuf(c, "sql_events").subscribe((w) => {
         const ev = unwrap(w);
         const stmtId = `${ev.stmt}`; // BigInt → string key
@@ -180,7 +170,7 @@ export const statements = from((state) => {
           e.maxNs = Number(ev.latency_ns);
           e.errmsg = cstr(ev.errmsg);
           finalize(e);
-          win.prepares++;
+          onActivity("prepares");
           return;
         }
 
@@ -199,25 +189,18 @@ export const statements = from((state) => {
           } else {
             cur.set(stmtId, newExec(sql, comm, pid, tid));
           }
-          win.prepares++;
+          onActivity("prepares");
           return;
         }
 
         if (ev.kind === EV.BIND) {
-          // A bind after the previous execution already stepped is a
-          // reset+rebind — a new execution of a cached statement.
-          let e = cur.get(stmtId);
-          if (!e || e.steps > 0) e = startExec(stmtId, comm, pid, tid);
-          e.comm = comm;
-          e.pid = pid;
-          e.tid = tid;
+          const e = cur.get(stmtId) ?? startExec(stmtId, comm, pid, tid);
           e.params.set(ev.param_idx, bindValue(ev));
           return;
         }
 
         if (ev.kind === EV.STEP) {
-          let e = cur.get(stmtId);
-          if (!e) e = startExec(stmtId, comm, pid, tid);
+          const e = cur.get(stmtId) ?? startExec(stmtId, comm, pid, tid);
           e.comm = comm;
           e.pid = pid;
           e.tid = tid;
@@ -225,10 +208,10 @@ export const statements = from((state) => {
           e.steps++;
           e.totalNs += ns;
           if (ns > e.maxNs) e.maxNs = ns;
-          win.steps++;
+          onActivity("steps");
           if (ev.rc === SQLITE_ROW) {
             e.rows++;
-            win.rows++;
+            onActivity("rows");
           } else {
             // DONE or error → the execution is complete; freeze it.
             e.lastRc = ev.rc;
@@ -239,7 +222,33 @@ export const statements = from((state) => {
         }
       });
     })
-    .catch((e) => status.set(`probe failed: ${e?.message ?? e}`));
+    .catch((e) => onStatus(`probe failed: ${e?.message ?? e}`));
+
+  return () => sub.then((s) => s?.unsubscribe?.());
+}
+
+// The reactive model is an append-only LOG of completed executions, not a
+// mutable per-statement aggregate. A statement is one row per EXECUTION: it's
+// assembled in-flight (prepare → bind* → step*), then FROZEN into the log the
+// moment it finishes and never touched again — so a row already on screen never
+// changes or jumps. New executions unshift at the top.
+export const statements = from((state) => {
+  const log = []; // completed executions, newest first — immutable once pushed
+  let logId = 0; // monotonic row id
+  let total = 0; // cumulative executions seen (title-bar counter)
+  let dirty = false; // did the log change since the last publish?
+  const win = { prepares: 0, steps: 0, rows: 0 }; // reset each window
+
+  const detach = attachStatements({
+    onStatus: (t) => status.set(t),
+    onActivity: (k) => win[k]++,
+    onStatement: (row) => {
+      log.unshift({ id: ++logId, ...row });
+      if (log.length > CAP) log.length = CAP; // bound scrollback
+      total++;
+      dirty = true;
+    },
+  });
 
   const secs = WINDOW_MS / 1000;
   const publish = () => {
@@ -259,7 +268,7 @@ export const statements = from((state) => {
 
   return () => {
     clearInterval(h);
-    sub.then((s) => s.unsubscribe());
+    detach();
   };
 }, []);
 
