@@ -13,7 +13,7 @@
  * imported through the `@/` source alias and composed here. This file also owns
  * the view state (scroll offset + fuzzy filter) and all keyboard input.
  */
-import { Box, computed, mount, signal } from "yeet:tui";
+import { Box, computed, signal } from "yeet:tui";
 import { statements, stats, status } from "@/probes/sqlite.js";
 import { fuzzyMatch, haystack } from "@/lib/fuzzy.js";
 import { rowHeight, rcIsError } from "@/lib/format.js";
@@ -105,7 +105,9 @@ const togglePause = () => {
 };
 
 // ── input ────────────────────────────────────────────────────────────────────
-tty.on("keydown", (e) => {
+// Registered only when a terminal is allocated: this module is also imported
+// by the headless JSON path (src/main.js), where the `tty` global is absent.
+if (typeof tty !== "undefined") tty.on("keydown", (e) => {
   const code = e.code;
   const key = e.key ?? "";
 
@@ -148,11 +150,11 @@ tty.on("keydown", (e) => {
   if (k === "g") return toNewest();
 });
 
-tty.on("wheel", (e) => move(e.deltaY > 0 ? 3 : -3));
+if (typeof tty !== "undefined") tty.on("wheel", (e) => move(e.deltaY > 0 ? 3 : -3));
 
 // `size` is the terminal's reactive size signal; the body reads it to reflow
 // (and to budget how many statement rows fit above the footer).
-const Root = (size) => (
+export const Root = (size) => (
   <Box>
     <TitleBar stats={stats} status={status} frozen={frozen} pinned={pinned} />
     <Box height="1fr" overflow="hidden">
@@ -178,5 +180,5 @@ const Root = (size) => (
   </Box>
 );
 
-mount(Root);
-await new Promise(() => {}); // keep the script alive; the TUI owns the screen
+// Mounted by src/main.js when a tty is allocated; the headless path
+// (no tty / `yeet run -T`) streams JSON instead — see src/json.js.
