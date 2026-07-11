@@ -194,7 +194,13 @@ export function attachStatements({ onStatement, onStatus = () => {}, onActivity 
         }
 
         if (ev.kind === EV.BIND) {
-          const e = cur.get(stmtId) ?? startExec(stmtId, comm, pid, tid);
+          // A bind after the previous execution already stepped is a
+          // reset+rebind — a new execution of a cached statement.
+          let e = cur.get(stmtId);
+          if (!e || e.steps > 0) e = startExec(stmtId, comm, pid, tid);
+          e.comm = comm;
+          e.pid = pid;
+          e.tid = tid;
           e.params.set(ev.param_idx, bindValue(ev));
           return;
         }
