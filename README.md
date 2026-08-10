@@ -1,3 +1,5 @@
+<!-- yeet:user-friendly-title: Monitor database actions -->
+
 # `sqlitefeed`
 
 > **`tail -f` for SQLite.** Every statement any process on the box runs against `libsqlite3` — the SQL (syntax-highlighted), the values bound to its `?` placeholders, the per-step latency and result code — decoded and streamed live to your terminal. No cooperation from the traced apps, no recompile, no `PRAGMA`.
