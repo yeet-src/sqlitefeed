@@ -15,7 +15,7 @@ import { BpfObject, RingBuf } from "yeet:bpf";
 import { from, signal } from "yeet:tui";
 
 // ── constants shared with sqlite.bpf.c ──────────────────────────────────────
-const EV = { PREPARE: 1, BIND: 2, STEP: 3, EXEC: 4 };
+const EV = { PREPARE: 1, BIND: 2, STEP: 3, EXEC: 4, FINALIZE: 5 };
 const BT = { NULL: 0, INT: 1, TEXT: 2, REAL: 3 };
 // sqlite result codes we distinguish (see lib/format.js for names/colors).
 const SQLITE_ROW = 100;
@@ -54,6 +54,7 @@ const ATTACH = [
   ["bind_text", up("sqlite3_bind_text")],
   ["bind_null", up("sqlite3_bind_null")],
   ["bind_double", up("sqlite3_bind_double")],
+  ["finalize_entry", up("sqlite3_finalize")],
 ];
 
 const load = () => {
@@ -203,6 +204,18 @@ export const statements = from((state) => {
           return;
         }
 
+        // The stmt pointer is dead — the allocator will hand it to a future
+        // statement, so forget everything tied to it. A lingering execution
+        // that did real work is complete by definition (nothing can step a
+        // finalized stmt); flush it rather than drop it.
+        if (ev.kind === EV.FINALIZE) {
+          const e = cur.get(stmtId);
+          if (e && (e.steps > 0 || e.params.size > 0)) finalize(e);
+          cur.delete(stmtId);
+          sqlByStmt.delete(stmtId);
+          return;
+        }
+
         if (ev.kind === EV.BIND) {
           // A bind after the previous execution already stepped is a
           // reset+rebind — a new execution of a cached statement.
@@ -268,7 +281,7 @@ export const statements = from((state) => {
 if (import.meta.main) {
   const ctl = await load();
   const rb = new RingBuf(ctl, "sql_events");
-  const kindName = { 1: "PREPARE", 2: "BIND", 3: "STEP", 4: "EXEC" };
+  const kindName = { 1: "PREPARE", 2: "BIND", 3: "STEP", 4: "EXEC", 5: "FINALIZE" };
   console.log(`[sqlite] attached ${ATTACH.length} probes on ${SQLITE_LIB} — waiting…`);
   rb.subscribe((w) => {
     const e = unwrap(w);
@@ -276,6 +289,7 @@ if (import.meta.main) {
     if (e.kind === EV.PREPARE) console.log(`${head} rc=${e.rc} sql=${JSON.stringify(cstr(e.text))}`);
     else if (e.kind === EV.EXEC) console.log(`${head} rc=${e.rc} latency=${Number(e.latency_ns)}ns sql=${JSON.stringify(cstr(e.text))}${e.rc ? ` err=${JSON.stringify(cstr(e.errmsg))}` : ""}`);
     else if (e.kind === EV.BIND) console.log(`${head} bind #${e.param_idx} = ${JSON.stringify(bindValue(e).text)}`);
+    else if (e.kind === EV.FINALIZE) console.log(head);
     else console.log(`${head} rc=${e.rc} latency=${Number(e.latency_ns)}ns`);
   });
   await new Promise(() => {});

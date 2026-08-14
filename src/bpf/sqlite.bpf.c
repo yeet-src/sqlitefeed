@@ -50,6 +50,7 @@ enum ev_kind {
 	EV_BIND = 2,
 	EV_STEP = 3,
 	EV_EXEC = 4, // sqlite3_exec() one-shot: SQL + total latency + result code
+	EV_FINALIZE = 5, // sqlite3_finalize(): the stmt pointer is dead after this
 };
 
 // Bound-value type. REAL is captured as a *type only*: doubles arrive in an
@@ -315,6 +316,29 @@ int BPF_URETPROBE(exec_return, int rc)
 				bpf_probe_read_user_str(&e->errmsg, sizeof(e->errmsg), (void *)msg);
 			}
 		}
+		bpf_ringbuf_submit(e, 0);
+	}
+	return 0;
+}
+
+// ── finalize(stmt) — entry-only, no pairing needed ───────────────────────────
+// A finalized stmt pointer returns to the allocator and WILL be reused for a
+// future statement. Without eviction the reused pointer aliases the dead one:
+// the `known` entry suppresses zSql recovery for the new statement, and
+// userspace keeps attributing the old SQL to it. Emit the death so both sides
+// forget the pointer.
+SEC("uprobe")
+int BPF_UPROBE(finalize_entry, void *stmt)
+{
+	if (!stmt) {
+		return 0;
+	}
+	__u64 key = (__u64)stmt;
+	bpf_map_delete_elem(&known, &key);
+
+	struct sqlite_event *e = new_event(EV_FINALIZE);
+	if (e) {
+		e->stmt = key;
 		bpf_ringbuf_submit(e, 0);
 	}
 	return 0;
