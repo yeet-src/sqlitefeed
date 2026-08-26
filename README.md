@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/sqlitefeed.gif" width="820" alt="sqlitefeed streaming live SQLite statements in the terminal">
+  <img src="assets/sqlitefeed.gif" width="820" alt="sqlitefeed streaming live SQLite statements from two processes, with bound values, per-step latency and result codes">
 </p>
 
 **`sqlitefeed` is a live terminal SQLite statement monitor for Linux: it streams every statement any process on the box runs against `libsqlite3`, with the concrete bound values, per-step latency, and result code.**
